@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include <chrono>
 #include <map>
 #include <shared_mutex>
 #include <vector>
@@ -62,12 +63,17 @@ namespace ommo
         // Reset the currently registered callback for DataFrame so it'll no longer be called
         void ResetDataFrameCallback();
 
-        // Get the latest data for the requested device
-        api::DataResponseUPtr GetLatestData(const api::DeviceID& device_id);
+        // Get the latest data for the requested device.
+        // If timeout_threshold_milliseconds is zero, return the latest data available.
+        // If timeout_threshold_milliseconds is non-zero, return the latest data received within the timeout threshold.
+        // If no data is received within the timeout threshold, return an empty DataResponse.
+        api::DataResponseUPtr GetLatestData(const api::DeviceID& device_id, std::chrono::milliseconds timeout_threshold = std::chrono::milliseconds(0));
         // Get the latest <num_packets> of data for the requested device
-        api::DataResponseUPtr GetLatestData(const api::DeviceID& device_id, int32_t num_packets);
+        api::DataResponseUPtr GetLatestData(const api::DeviceID& device_id, uint32_t num_packets);
         // Get all data since <start_idx> for the requested device
-        api::DataResponseUPtr GetDataSinceIndex(const api::DeviceID& device_id, int32_t start_idx);
+        api::DataResponseUPtr GetDataSinceIndex(const api::DeviceID& device_id, uint32_t start_idx);
+        // Get all data received within the specified max_age
+        api::DataResponseUPtr GetDataWithMaxAge(const api::DeviceID& device_id, std::chrono::milliseconds max_age);
 
         // Store the data stream pointer of a tracking device to this DataManager.
         bool AddDataStream(const api::DeviceID& device_id, rpcClientCallData* call_data);

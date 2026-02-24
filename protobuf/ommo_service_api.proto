@@ -48,6 +48,7 @@ enum LatencyTimestampType
     LATENCY_TIMESTAMP_TYPE_SAMPLE = 1;
     LATENCY_TIMESTAMP_TYPE_SERVICE_RECEIVED = 2;
     LATENCY_TIMESTAMP_TYPE_SERVICE_SENT = 3;
+    LATENCY_TIMESTAMP_TYPE_SDK_RECEIVED = 4;
 }
 
 message LatencyTimestampData
@@ -441,6 +442,18 @@ message SelectReferenceDeviceResponse
     bool success = 1;
 }
 
+message ReferenceDeviceState
+{
+    bool is_enabled = 1;
+    uint32 siu_uuid = 2;
+    uint32 port_num = 3;
+}
+
+message ReferenceDeviceStateStreamRequest
+{
+    bool include_initial_state = 2;
+}
+
 service CoreService
 {
     rpc GetTrackingDevices (TrackingDevicesRequest) returns (TrackingDevices);
@@ -467,4 +480,6 @@ service CoreService
      * the data returned in this mode is subject to change
      */
     rpc SelectReferenceDevice(SelectReferenceDeviceRequest) returns (SelectReferenceDeviceResponse);
+
+    rpc OpenReferenceDeviceStateStream(ReferenceDeviceStateStreamRequest) returns (stream ReferenceDeviceState);
 }

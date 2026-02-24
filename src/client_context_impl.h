@@ -35,6 +35,10 @@ namespace ommo::api
 
             void ResetChannelStateCallback();
 
+            void RegisterReferenceDeviceStateEventCallback(std::function<void(const api::ReferenceDeviceState& event)> callback_function);
+
+            void ResetReferenceDeviceStateEventCallback();
+
             uint32_t RequestDeviceData(api::DataRequest& request);
 
             uint32_t RequestDataFrame(api::DataRequest& request);
@@ -46,9 +50,13 @@ namespace ommo::api
             // Get data functions
             api::DataResponse* GetLatestData(uint32_t request_tag, const api::DeviceID& device_id);
 
+            api::DataResponse* GetLatestData(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds timeout_threshold);
+
             api::DataResponse* GetLatestData(uint32_t request_tag, const api::DeviceID& device_id, int32_t num_packets);
 
             api::DataResponse* GetDataSinceIndex(uint32_t request_tag, const api::DeviceID& device_id, int32_t start_index);
+
+            api::DataResponse* GetDataWithMaxAge(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds max_age);
 
             uint32_t RequestBaseStationData();
 

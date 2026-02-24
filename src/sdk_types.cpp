@@ -490,5 +490,24 @@ namespace ommo::api {
             return "Invalid";
         }
     }
+
+    const char* GetTimestampTypeName(TimestampType type)
+    {
+        switch (type)
+        {
+        case TimestampType::kTimestampTypeUnknown:
+            return "Unknown";
+        case TimestampType::kTimestampTypeSample:
+            return "Sample";
+        case TimestampType::kTimestampTypeServiceReceived:
+            return "ServiceReceived";
+        case TimestampType::kTimestampTypeServiceSent:
+            return "ServiceSent";
+        case TimestampType::kTimestampTypeSdkReceived:
+            return "SdkReceived";
+        default:
+            return "Invalid";
+        }
+    }
     
 }  // namespace ommo::api

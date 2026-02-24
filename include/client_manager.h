@@ -20,6 +20,8 @@
 #include "ommo_service_api.grpc.pb.h"
 #include "rpcClientCallData.h"
 
+class RpcReferenceDeviceStateStreamClientReadReactor;
+class RpcTrackingDevicesEventStreamClientReadReactor;
 class RpcWirelessManagementStreamClientCallData;
 
 namespace ommo::api
@@ -97,6 +99,16 @@ namespace ommo
          */
         void ResetChannelStateCallback();
 
+        /*
+         * Register a call back to be called whenever a ReferenceDeviceState is received from service
+         * Only one call back can be registered at a time. Registering another callback will overwrite the existing one.
+         */
+        void RegisterReferenceDeviceStateEventCallback(std::function<void(const api::ReferenceDeviceState& event)> callback_function);
+
+        /*
+         * Reset the currently registered callback for ReferenceDeviceState so it'll no longer be called
+         */
+        void ResetReferenceDeviceStateEventCallback();
 
         /*
          * Request real-time data from one or more devices. Data is returned individually for each device as
@@ -174,6 +186,11 @@ namespace ommo
         bool SelectReferenceDevice(bool enabled, uint32_t siu_uuid, uint32_t port_num);
 
         /*
+         * Get the current reference device state.
+         */
+        api::ReferenceDeviceState GetCurrentReferenceDeviceState();
+
+        /*
          * The following are low level access functions for more advance gRPC API usage. They are direct replacements for
          * legacy rpcOmmoClientManager functions.
          */
@@ -183,11 +200,6 @@ namespace ommo
          * This is suitable for scenarios where low level control over the individual data and gRPC API is required.
          */
         rpcClientCallData* OpenTrackingDeviceDataStream(const ommo::TrackingDeviceDataStreamRequest& request, const std::function<void(const ommo::TrackingDeviceData&)> listener_function, std::weak_ptr<ommo::CallDataAssociation> association = std::weak_ptr<ommo::CallDataAssociation>{});
-
-        /*
-         * Manually open a tracking device event stream. Tracking device events are returned to the listener function when received from ommo service
-         */
-        rpcClientCallData* OpenTrackingDevicesEventStream(const ommo::TrackingDevicesEventStreamRequest& request, const std::function<void(const ommo::TrackingDeviceEvent&)> listener_function);
 
         /*
          * Manually open a data frame stream. Data for all specified devices is returned collectively in a single
@@ -212,17 +224,17 @@ namespace ommo
          */
         rpcClientCallData* OpenTrackingGroupsEventStream(const ommo::TrackingGroupsEventStreamRequest &request, const std::function<void(const ommo::TrackingGroupEvent&)> cb_handler);
 
-        /*
-         * Manually open a wireless management stream. Wireless management events are returned to the provided callback function when received from ommo service.
-         */
-        RpcWirelessManagementStreamClientCallData* OpenWirelessManagementStream(const std::function<void(const ommo::WirelessManagementEvent&)> cb_handler, std::weak_ptr<ommo::CallDataAssociation> association = std::weak_ptr<ommo::CallDataAssociation>{});
-
     private:
         /*
          * Handle device events received from ommo service. Updates the list of connected devices
          * and any DataManagers that are interested. It will also call the user provided callback function.
          */
         void DeviceEventProcessor(const ommo::TrackingDeviceEvent& device_event);
+
+        /*
+         * Handle reference device state events received from ommo service.
+         */
+        void ReferenceDeviceStateEventProcessor(const ommo::ReferenceDeviceState& event);
 
         // Monitor the gRPC channel status. Opens a DeviceEventStream when the channel is able to be used.
         void ChannelMonitor();
@@ -275,14 +287,20 @@ namespace ommo
          */
         int previous_channel_state_ = -1;
 
-        // Store the call data tag for handling device events
-        rpcClientCallData* device_event_stream_ptr_ = nullptr;
+        // Stores the pointer to the gRPC async API client read reactor for handling device events
+        std::unique_ptr<RpcTrackingDevicesEventStreamClientReadReactor> device_event_stream_ptr_;
+
+        // Stores the pointer to the gRPC async API client read reactor for reference device state events
+        std::unique_ptr<RpcReferenceDeviceStateStreamClientReadReactor> reference_device_state_stream_ptr_;
 
         // Store the user's device event callback function
         std::function<void(const api::TrackingDeviceEvent& device_event)> device_event_user_callback_;
 
         // Store the user's gRPC channel state callback function
         std::function<void(int channel_state)> channel_state_user_callback_;
+
+        // Store the user's reference device state event callback function
+        std::function<void(const api::ReferenceDeviceState& event)> reference_device_state_event_user_callback_;
 
         // Lockable object to protect the data manager list
         std::mutex data_manager_list_mutex_;
@@ -301,5 +319,11 @@ namespace ommo
 
         // Store the wireless manager created.
         std::vector<std::shared_ptr<WirelessManagerWrapper>> wireless_manager_wrapper_list_;
+
+        // Mutex to protect access to current reference device state
+        std::mutex reference_device_state_mutex_;
+
+        // Store the current reference device state
+        api::ReferenceDeviceState current_reference_device_state_{false, 0, 0};
     };
 }  // namespace ommo

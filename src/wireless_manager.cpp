@@ -11,7 +11,7 @@
 
 
 #include "protobuf_converters.h"
-#include "rpc_wireless_management_stream_client_call_data.h"
+#include "rpc_wireless_management_stream_client_bidi_reactor.h"
 
 namespace ommo::api
 {
@@ -131,24 +131,27 @@ namespace ommo::api
 
     void WirelessManager::impl::CancelStream()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
-            cdata->CancelCall();
+            client_reactor_->CancelCall();
         }
     }
 
     bool WirelessManager::impl::IsStreamActive() const
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_)
         {
-            return cdata->listener_active;
+            return client_reactor_->IsStreamActive();
         }
         return false;
     }
 
-    void WirelessManager::impl::SetCallData(RpcWirelessManagementStreamClientCallData* call_data)
+    void WirelessManager::impl::SetClientReactor(std::shared_ptr<RpcWirelessManagementStreamClientBidiReactor> client_reactor)
     {
-        cdata = call_data;
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        client_reactor_ = client_reactor;
     }
 
     void WirelessManager::impl::RegisterWirelessEventCallback(std::function<void(WirelessManagementEvent*)> callback_function)
@@ -163,180 +166,197 @@ namespace ommo::api
 
     void WirelessManager::impl::EnablePairingMode()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_ENABLE_PAIRING_MODE);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::DisablePairingMode()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_DISABLE_PAIRING_MODE);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::GetPairingApprovedList()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_GET_PAIRING_APPROVED_LIST);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::ApprovePairing(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_APPROVE_PAIRING);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::DenyPairing(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_DENY_PAIRING);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::Unpair(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_UNPAIR);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::GetPairingBlockedList()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_GET_PAIRING_BLOCKED_LIST);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::BlockPairing(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_BLOCK_PAIRING);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::UnblockPairing(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_UNBLOCK_PAIRING);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::ClearBlockedList()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_CLEAR_BLOCKED_LIST);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::ClearApprovedList()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_CLEAR_APPROVED_LIST);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::ResetWirelessConfig()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_RESET_WIRELESS_CONFIG);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::SetIntervalLength(uint32_t interval_length)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_SET_INTERVAL_LENGTH);
             request.set_interval_length(interval_length);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::ApproveIntervalPairing(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_APPROVE_INTERVAL_PAIRING);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::SleepDevice(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_SLEEP_DEVICE);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::WakeDevice(uint32_t uuid)
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_WAKE_DEVICE);
             request.set_siu_uuid(uuid);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 
     void WirelessManager::impl::GetPairingApprovedIntervalList()
     {
-        if (cdata)
+        std::lock_guard<std::mutex> lock(reactor_mutex_);
+        if (client_reactor_ && client_reactor_->IsStreamActive())
         {
             ommo::WirelessManagementRequest request;
             request.set_request_type(ommo::WirelessManagementRequestType::WIRELESS_MANAGEMENT_REQUEST_GET_PAIRING_APPROVED_INTERVAL_LIST);
-            cdata->SendWirelessManagementRequest(request);
+            client_reactor_->SendWirelessManagementRequest(request);
         }
     }
 

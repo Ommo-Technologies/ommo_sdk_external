@@ -9,7 +9,7 @@
 #pragma once
 
 #include "protobuf_converters.h"
-#include "rpc_wireless_management_stream_client_call_data.h"
+#include "rpc_wireless_management_stream_client_bidi_reactor.h"
 #include "sdk_types.h"
 
 namespace ommo::api
@@ -23,7 +23,7 @@ namespace ommo::api
 
             bool IsStreamActive() const;
 
-            void SetCallData(RpcWirelessManagementStreamClientCallData* call_data);
+            void SetClientReactor(std::shared_ptr<RpcWirelessManagementStreamClientBidiReactor> client_reactor);
 
             void RegisterWirelessEventCallback(std::function<void(WirelessManagementEvent*)> callback_function);
 
@@ -66,7 +66,8 @@ namespace ommo::api
             void HandleEvent(const ommo::WirelessManagementEvent& event);
 
         private:
-            RpcWirelessManagementStreamClientCallData* cdata;
+            mutable std::mutex reactor_mutex_;
+            std::shared_ptr<RpcWirelessManagementStreamClientBidiReactor> client_reactor_;
             std::function<void(WirelessManagementEvent*)> wireless_management_event_user_callback_;
 
     };

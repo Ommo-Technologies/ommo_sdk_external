@@ -19,7 +19,7 @@ namespace ommo
     {
         if (wireless_manager_ptr)
         {
-            wireless_manager_ptr->p_impl_->SetCallData(nullptr);
+            wireless_manager_ptr->p_impl_->SetClientReactor(nullptr);
             return true;
         }
         return false;

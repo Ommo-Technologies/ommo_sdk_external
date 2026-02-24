@@ -211,7 +211,8 @@ namespace ommo::api
             kTimestampTypeUnknown = 0,
             kTimestampTypeSample = 1,
             kTimestampTypeServiceReceived = 2,
-            kTimestampTypeServiceSent = 3
+            kTimestampTypeServiceSent = 3,
+            kTimestampTypeSdkReceived = 4
         } TimestampType;
 
         typedef struct TimestampData
@@ -467,6 +468,13 @@ namespace ommo::api
             bool success;
         } SelectReferenceDeviceResponse;
 
+        typedef struct ReferenceDeviceState
+        {
+            bool is_enabled;
+            uint32_t siu_uuid;
+            uint32_t port_num;
+        } ReferenceDeviceState;
+
         OMMO_SDK_API DataRequest* CreateDefaultDataRequest();
 
         /*
@@ -538,6 +546,7 @@ namespace ommo::api
          */
         OMMO_SDK_API const char* GetHardwareStatusName(HardwareStatus status);
         OMMO_SDK_API const char* GetDirectCommStatusName(DirectCommStatus status);
+        OMMO_SDK_API const char* GetTimestampTypeName(TimestampType type);
     }
 
     /*

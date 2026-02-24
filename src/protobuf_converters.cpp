@@ -474,4 +474,14 @@ namespace ommo
         proto_request.set_port_num(request.port_num);
         return proto_request;
     }
+
+    api::ReferenceDeviceState ProtoToReferenceDeviceStateEvent(const ommo::ReferenceDeviceState& event)
+    {
+        api::ReferenceDeviceState ref_device_event;
+        ref_device_event.is_enabled = event.is_enabled();
+        ref_device_event.siu_uuid = event.siu_uuid();
+        ref_device_event.port_num = event.port_num();
+        return ref_device_event;
+    }
+
 }

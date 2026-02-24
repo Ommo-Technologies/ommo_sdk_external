@@ -87,11 +87,12 @@ set(SOURCE_FILES
     src/rpcClientCallData.cpp
     src/rpcOpenDataFrameStreamClientCallData.cpp
     src/rpcOpenTrackingDeviceDataStreamClientCallData.cpp
-    src/rpcOpenTrackingDevicesEventStreamClientCallData.cpp
     src/rpc_base_station_data_stream_client_call_data.cpp
+    src/rpc_reference_device_state_stream_client_read_reactor.cpp
+    src/rpc_tracking_devices_event_stream_client_read_reactor.cpp
     src/rpc_tracking_group_data_stream_client_call_data.cpp
     src/rpc_tracking_groups_event_stream_client_call_data.cpp
-    src/rpc_wireless_management_stream_client_call_data.cpp
+    src/rpc_wireless_management_stream_client_bidi_reactor.cpp
     src/sdk_types.cpp
     src/sdk_utils.cpp
     src/spdlog_logger.cpp
@@ -120,11 +121,12 @@ else()
     include/rpcClientCallData.h
     include/rpcOpenDataFrameStreamClientCallData.h
     include/rpcOpenTrackingDeviceDataStreamClientCallData.h
-    include/rpcOpenTrackingDevicesEventStreamClientCallData.h
     include/rpc_base_station_data_stream_client_call_data.h
+    include/rpc_reference_device_state_stream_client_read_reactor.h
+    include/rpc_tracking_devices_event_stream_client_read_reactor.h
     include/rpc_tracking_group_data_stream_client_call_data.h
     include/rpc_tracking_groups_event_stream_client_call_data.h
-    include/rpc_wireless_management_stream_client_call_data.h
+    include/rpc_wireless_management_stream_client_bidi_reactor.h
     include/rwlock.h
     include/spdlog_logger.h
     include/std_out_logger.h

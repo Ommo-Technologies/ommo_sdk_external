@@ -81,6 +81,16 @@ namespace ommo::api
         p_impl_->ResetChannelStateCallback();
     }
 
+    void ClientContext::RegisterReferenceDeviceStateEventCallback(std::function<void(const api::ReferenceDeviceState& event)> callback_function)
+    {
+        p_impl_->RegisterReferenceDeviceStateEventCallback(callback_function);
+    }
+
+    void ClientContext::ResetReferenceDeviceStateEventCallback()
+    {
+        p_impl_->ResetReferenceDeviceStateEventCallback();
+    }
+
     uint32_t ClientContext::RequestDeviceData(api::DataRequest& request)
     {
         return p_impl_->RequestDeviceData(request);
@@ -130,6 +140,11 @@ namespace ommo::api
         return p_impl_->GetLatestData(request_tag, device_id);
     }
 
+    api::DataResponse* ClientContext::GetLatestData(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds timeout_threshold)
+    {
+        return p_impl_->GetLatestData(request_tag, device_id, timeout_threshold);
+    }
+
     api::DataResponse* ClientContext::GetLatestData(uint32_t request_tag, const api::DeviceID& device_id, int32_t num_packets)
     {
         return p_impl_->GetLatestData(request_tag, device_id, num_packets);
@@ -138,6 +153,11 @@ namespace ommo::api
     api::DataResponse* ClientContext::GetDataSinceIndex(uint32_t request_tag, const api::DeviceID& device_id, int32_t start_index)
     {
         return p_impl_->GetDataSinceIndex(request_tag, device_id, start_index);
+    }
+
+    api::DataResponse* ClientContext::GetDataWithMaxAge(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds max_age)
+    {
+        return p_impl_->GetDataWithMaxAge(request_tag, device_id, max_age);
     }
 
     void ClientContext::RegisterTrackingDeviceDataCallback(uint32_t request_tag, std::function<void(const api::TrackingDeviceData&)> callback_function)
@@ -242,6 +262,16 @@ namespace ommo::api
         client_manager_->ResetChannelStateCallback();
     }
 
+    void ClientContext::impl::RegisterReferenceDeviceStateEventCallback(std::function<void(const api::ReferenceDeviceState& event)> callback_function)
+    {
+        client_manager_->RegisterReferenceDeviceStateEventCallback(callback_function);
+    }
+
+    void ClientContext::impl::ResetReferenceDeviceStateEventCallback()
+    {
+        client_manager_->ResetReferenceDeviceStateEventCallback();
+    }
+
     uint32_t ClientContext::impl::RequestDeviceData(api::DataRequest& request)
     {
         std::shared_ptr<ommo::DataManager> manager = client_manager_->RequestDeviceData(request);
@@ -282,7 +312,7 @@ namespace ommo::api
         return new api::DeviceIDList{ nullptr, 0 };
     }
 
-            // Get data functions
+    // Get data functions
     api::DataResponse* ClientContext::impl::GetLatestData(uint32_t request_tag, const api::DeviceID& device_id)
     {
         std::shared_lock<std::shared_mutex> lock(data_manager_map_mutex_);
@@ -290,6 +320,17 @@ namespace ommo::api
         if (item != data_managers_.end())
         {
             return item->second->GetLatestData(device_id).release();
+        }
+        return new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 };
+    }
+
+    api::DataResponse* ClientContext::impl::GetLatestData(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds timeout_threshold)
+    {
+        std::shared_lock<std::shared_mutex> lock(data_manager_map_mutex_);
+        auto item = data_managers_.find(request_tag);
+        if (item != data_managers_.end())
+        {
+            return item->second->GetLatestData(device_id, timeout_threshold).release();
         }
         return new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 };
     }
@@ -312,6 +353,17 @@ namespace ommo::api
         if (item != data_managers_.end())
         {
             return item->second->GetDataSinceIndex(device_id, start_index).release();
+        }
+        return new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 };
+    }
+
+    api::DataResponse* ClientContext::impl::GetDataWithMaxAge(uint32_t request_tag, const api::DeviceID& device_id, std::chrono::milliseconds max_age)
+    {
+        std::shared_lock<std::shared_mutex> lock(data_manager_map_mutex_);
+        auto item = data_managers_.find(request_tag);
+        if (item != data_managers_.end())
+        {
+            return item->second->GetDataWithMaxAge(device_id, max_age).release();
         }
         return new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 };
     }
@@ -450,3 +502,339 @@ namespace ommo::api
         return client_manager_->SelectReferenceDevice(enabled, siu_uuid, port_num);
     }
 } // namespace ommo::api
+
+// C API implementation
+extern "C" {
+    /*
+     * ------------------------------------------------------------------------
+     * ClientContext Creation and Management
+     * ------------------------------------------------------------------------
+     */
+
+    OmmoClientContext* ClientContext_Create(const char* server_address)
+    {
+        try {
+            return new ommo::api::ClientContext(server_address);
+        }
+        catch (...) {
+            return nullptr;
+        }
+    }
+
+    void ClientContext_Destroy(OmmoClientContext* context)
+    {
+        if (context) {
+            delete static_cast<ommo::api::ClientContext*>(context);
+        }
+    }
+
+    void ClientContext_Start(OmmoClientContext* context)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->Start();
+        }
+    }
+
+    void ClientContext_Shutdown(OmmoClientContext* context)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->Shutdown();
+        }
+    }
+
+    void ClientContext_SetupLogging(OmmoClientContext* context, const char* file_name)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->SetupLogging(file_name);
+        }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Device and Hardware Information
+     * ------------------------------------------------------------------------
+     */
+
+    ommo::api::TrackingDevices* ClientContext_GetTrackingDevices(OmmoClientContext* context)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetTrackingDevices();
+        }
+        return nullptr;
+    }
+
+    ommo::api::HardwareStates* ClientContext_GetHardwareStates(OmmoClientContext* context)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetHardwareStates();
+        }
+        return nullptr;
+    }
+
+    bool ClientContext_SetBaseStationMotorRunning(OmmoClientContext* context, bool active)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->SetBaseStationMotorRunning(active);
+        }
+        return false;
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Event Callbacks
+     * ------------------------------------------------------------------------
+     */
+
+    void ClientContext_RegisterDeviceEventCallback(OmmoClientContext* context, DeviceEventCallback callback_function)
+    {
+        if (context && callback_function) {
+            static_cast<ommo::api::ClientContext*>(context)->RegisterDeviceEventCallback([callback_function](const ommo::api::TrackingDeviceEvent& event) {
+                callback_function(&event);
+            });
+        }
+    }
+
+    void ClientContext_ResetDeviceEventCallback(OmmoClientContext* context)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->ResetDeviceEventCallback();
+        }
+    }
+
+    void ClientContext_RegisterChannelStateCallback(OmmoClientContext* context, ChannelStateCallback callback_function)
+    {
+        if (context && callback_function) {
+            static_cast<ommo::api::ClientContext*>(context)->RegisterChannelStateCallback([callback_function](int state) {
+                callback_function(state);
+            });
+        }
+    }
+
+    void ClientContext_ResetChannelStateCallback(OmmoClientContext* context)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->ResetChannelStateCallback();
+        }
+    }
+
+    void ClientContext_RegisterReferenceDeviceStateEventCallback(OmmoClientContext* context, std::function<void(const ommo::api::ReferenceDeviceState&)> callback_function)
+    {
+        if (context && callback_function) {
+            static_cast<ommo::api::ClientContext*>(context)->RegisterReferenceDeviceStateEventCallback(callback_function);
+        }
+    }
+
+    void ClientContext_ResetReferenceDeviceStateEventCallback(OmmoClientContext* context)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->ResetReferenceDeviceStateEventCallback();
+        }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Data Requests
+     * ------------------------------------------------------------------------
+     */
+
+    uint32_t ClientContext_RequestDeviceData(OmmoClientContext* context, const ommo::api::DataRequest* request)
+    {
+        if (context && request) {
+            // Create a non-const copy since the C++ function takes a reference
+            ommo::api::DataRequest mutable_request = *request;
+            return static_cast<ommo::api::ClientContext*>(context)->RequestDeviceData(mutable_request);
+        }
+        return 0;
+    }
+
+    uint32_t ClientContext_RequestDataFrame(OmmoClientContext* context, const ommo::api::DataRequest* request)
+    {
+        if (context && request) {
+            // Create a non-const copy since the C++ function takes a reference
+            ommo::api::DataRequest mutable_request = *request;
+            return static_cast<ommo::api::ClientContext*>(context)->RequestDataFrame(mutable_request);
+        }
+        return 0;
+    }
+
+    void ClientContext_CloseRequest(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->CloseRequest(request_tag);
+        }
+    }
+
+    uint32_t ClientContext_RequestBaseStationData(OmmoClientContext* context)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->RequestBaseStationData();
+        }
+        return 0;
+    }
+
+    void ClientContext_CloseBaseStationDataRequest(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->CloseBaseStationDataRequest(request_tag);
+        }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Data Retrieval
+     * ------------------------------------------------------------------------
+     */
+
+    ommo::api::DeviceIDList* ClientContext_GetAvailableDeviceList(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetAvailableDeviceList(request_tag);
+        }
+        return nullptr;
+    }
+
+    ommo::api::DataResponse* ClientContext_GetLatestData(OmmoClientContext* context, uint32_t request_tag, const ommo::api::DeviceID* device_id)
+    {
+        if (context && device_id) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetLatestData(request_tag, *device_id);
+        }
+        return nullptr;
+    }
+
+    ommo::api::DataResponse* ClientContext_GetLatestDataWithTimeout(OmmoClientContext* context, uint32_t request_tag, const ommo::api::DeviceID* device_id, int64_t timeout_threshold_ms)
+    {
+        if (context && device_id) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetLatestData(request_tag, *device_id, std::chrono::milliseconds(timeout_threshold_ms));
+        }
+        return nullptr;
+    }
+
+    ommo::api::DataResponse* ClientContext_GetDataWithMaxAge(OmmoClientContext* context, uint32_t request_tag, const ommo::api::DeviceID* device_id, int64_t max_age_ms)
+    {
+        if (context && device_id) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetDataWithMaxAge(request_tag, *device_id, std::chrono::milliseconds(max_age_ms));
+        }
+        return nullptr;
+    }
+
+    ommo::api::DataResponse* ClientContext_GetLatestDataWithCount(OmmoClientContext* context, uint32_t request_tag, const ommo::api::DeviceID* device_id, int32_t num_packets)
+    {
+        if (context && device_id) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetLatestData(request_tag, *device_id, num_packets);
+        }
+        return nullptr;
+    }
+
+    ommo::api::DataResponse* ClientContext_GetDataSinceIndex(OmmoClientContext* context, uint32_t request_tag, const ommo::api::DeviceID* device_id, int32_t start_index)
+    {
+        if (context && device_id) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetDataSinceIndex(request_tag, *device_id, start_index);
+        }
+        return nullptr;
+    }
+
+    ommo::api::BaseStationDataResponse* ClientContext_GetLatestBaseStationData(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetLatestBaseStationData(request_tag);
+        }
+        return nullptr;
+    }
+
+    ommo::api::BaseStationDataResponse* ClientContext_GetLatestBaseStationDataWithCount(OmmoClientContext* context, uint32_t request_tag, int32_t num_packets)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetLatestBaseStationData(request_tag, num_packets);
+        }
+        return nullptr;
+    }
+
+    ommo::api::BaseStationDataResponse* ClientContext_GetBaseStationDataSinceIndex(OmmoClientContext* context, uint32_t request_tag, int32_t start_index)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->GetBaseStationDataSinceIndex(request_tag, start_index);
+        }
+        return nullptr;
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Data Stream Callbacks
+     * ------------------------------------------------------------------------
+     */
+
+    void ClientContext_RegisterTrackingDeviceDataCallback(OmmoClientContext* context, uint32_t request_tag, TrackingDeviceDataCallback callback_function)
+    {
+        if (context && callback_function) {
+            static_cast<ommo::api::ClientContext*>(context)->RegisterTrackingDeviceDataCallback(request_tag, [callback_function](const ommo::api::TrackingDeviceData& data) {
+                callback_function(&data);
+            });
+        }
+    }
+
+    void ClientContext_ResetTrackingDeviceDataCallback(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->ResetTrackingDeviceDataCallback(request_tag);
+        }
+    }
+
+    void ClientContext_RegisterDataFrameCallback(OmmoClientContext* context, uint32_t request_tag, DataFrameCallback callback_function)
+    {
+        if (context && callback_function) {
+            static_cast<ommo::api::ClientContext*>(context)->RegisterDataFrameCallback(request_tag, [callback_function](const ommo::api::DataFrame& frame) {
+                callback_function(&frame);
+            });
+        }
+    }
+
+    void ClientContext_ResetDataFrameCallback(OmmoClientContext* context, uint32_t request_tag)
+    {
+        if (context) {
+            static_cast<ommo::api::ClientContext*>(context)->ResetDataFrameCallback(request_tag);
+        }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Wireless Manager
+     * ------------------------------------------------------------------------
+     */
+
+    OmmoWirelessManager* ClientContext_CreateWirelessManager(OmmoClientContext* context)
+    {
+        if (context) {
+            return static_cast<OmmoWirelessManager*>(static_cast<ommo::api::ClientContext*>(context)->CreateWirelessManager());
+        }
+        return nullptr;
+    }
+
+    void ClientContext_DeleteWirelessManager(OmmoClientContext* context, OmmoWirelessManager* wireless_manager)
+    {
+        if (context && wireless_manager) {
+            static_cast<ommo::api::ClientContext*>(context)->DeleteWirelessManager(static_cast<ommo::api::WirelessManager*>(wireless_manager));
+        }
+    }
+
+    /*
+     * ------------------------------------------------------------------------
+     * Data Logging
+     * ------------------------------------------------------------------------
+     */
+
+    ommo::api::DataLogState ClientContext_EnableDataLogging(OmmoClientContext* context, const char* directory, const char* file_name, bool overwrite)
+    {
+        if (context && directory && file_name) {
+            return static_cast<ommo::api::ClientContext*>(context)->EnableDataLogging(directory, file_name, overwrite);
+        }
+        return ommo::api::DataLogState::kError;
+    }
+
+    ommo::api::DataLogState ClientContext_DisableDataLogging(OmmoClientContext* context)
+    {
+        if (context) {
+            return static_cast<ommo::api::ClientContext*>(context)->DisableDataLogging();
+        }
+        return ommo::api::DataLogState::kError;
+    }
+}

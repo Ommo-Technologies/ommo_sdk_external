@@ -69,7 +69,7 @@ namespace ommo
             // Save raw data.
             write_buffer_.packet_buffer_ptr[0].packet_idx = packet_received_num_++;
     
-            write_buffer_.packet_buffer_ptr[write_idx].base_station_data = ommo::ProtoToBaseStationData(packet);
+            write_buffer_.packet_buffer_ptr[0].base_station_data = ommo::ProtoToBaseStationData(packet);
 
             write_buffer_.data_num.store(1);
         }

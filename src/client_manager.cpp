@@ -11,12 +11,13 @@
 #include "client_manager.h"
 #include "logger_base.h"
 #include "rpcOpenTrackingDeviceDataStreamClientCallData.h"
-#include "rpcOpenTrackingDevicesEventStreamClientCallData.h"
 #include "rpcOpenDataFrameStreamClientCallData.h"
 #include "rpc_base_station_data_stream_client_call_data.h"
+#include "rpc_reference_device_state_stream_client_read_reactor.h"
+#include "rpc_tracking_devices_event_stream_client_read_reactor.h"
 #include "rpc_tracking_group_data_stream_client_call_data.h"
 #include "rpc_tracking_groups_event_stream_client_call_data.h"
-#include "rpc_wireless_management_stream_client_call_data.h"
+#include "rpc_wireless_management_stream_client_bidi_reactor.h"
 #include "protobuf_converters.h"
 #include "sdk_utils.h"
 #include "wireless_manager.h"
@@ -53,10 +54,6 @@ namespace ommo
         return new rpcOpenDataFrameStreamClientCallData(channel_, &completion_queue_, request, listener_function, association);
     }
 
-    rpcClientCallData* ClientManager::OpenTrackingDevicesEventStream(const ommo::TrackingDevicesEventStreamRequest& request, const std::function<void(const ommo::TrackingDeviceEvent&)> listener_function)
-    {
-        return new rpcOpenTrackingDevicesEventStreamClientCallData(channel_, &completion_queue_, request, listener_function);
-    }
 
     rpcClientCallData* ClientManager::OpenBaseStationDataStream(const ommo::BaseStationDataStreamRequest &request, const std::function<void(const ommo::BaseStationData&)> cb_handler, std::weak_ptr<ommo::CallDataAssociation> association)
     {
@@ -71,11 +68,6 @@ namespace ommo
     rpcClientCallData* ClientManager::OpenTrackingGroupsEventStream(const ommo::TrackingGroupsEventStreamRequest &request, const std::function<void(const ommo::TrackingGroupEvent&)> cb_handler)
     {
         return new RpcTrackingGroupsEventStreamClientCallData(channel_, &completion_queue_, request, cb_handler);
-    }
-
-    RpcWirelessManagementStreamClientCallData* ClientManager::OpenWirelessManagementStream(const std::function<void(const ommo::WirelessManagementEvent&)> cb_handler, std::weak_ptr<ommo::CallDataAssociation> association)
-    {
-        return new RpcWirelessManagementStreamClientCallData(channel_, &completion_queue_, cb_handler, association);
     }
 
     api::TrackingDevicesUPtr ClientManager::GetTrackingDevices()
@@ -167,7 +159,13 @@ namespace ommo
                     req.set_include_all_connected_devices(true);
 
                     OMMOLOG_INFO("Channel is ready. Opening device event stream");
-                    device_event_stream_ptr_ = OpenTrackingDevicesEventStream(req, std::bind(&ClientManager::DeviceEventProcessor, this, std::placeholders::_1));
+                    device_event_stream_ptr_ = std::make_unique<RpcTrackingDevicesEventStreamClientReadReactor>(channel_, req, std::bind(&ClientManager::DeviceEventProcessor, this, std::placeholders::_1));
+
+                    ommo::ReferenceDeviceStateStreamRequest ref_req;
+                    ref_req.set_include_initial_state(true);
+                    OMMOLOG_INFO("Opening reference device state event stream");
+                    reference_device_state_stream_ptr_ = std::make_unique<RpcReferenceDeviceStateStreamClientReadReactor>(
+                        channel_, ref_req, std::bind(&ClientManager::ReferenceDeviceStateEventProcessor, this, std::placeholders::_1));
 
                     // Re-open base station stream if they are previously requested.
                     std::unique_lock<std::mutex> lk(base_station_data_storage_list_mutex_);
@@ -183,19 +181,20 @@ namespace ommo
                     lk.unlock();
 
                     // Re-open wireless management stream if it is previously requested.
+                    OMMOLOG_INFO("Opening wireless management stream");
                     std::unique_lock<std::mutex> wl(wireless_manager_list_mutex_);
                     for (auto& manager_wrapper : wireless_manager_wrapper_list_)
                     {
                         if (!manager_wrapper->wireless_manager_ptr->IsStreamActive())
                         {
-                            RpcWirelessManagementStreamClientCallData* call_data = OpenWirelessManagementStream(
+                            auto reactor = RpcWirelessManagementStreamClientBidiReactor::Create(channel_,
                                 [impl = manager_wrapper->wireless_manager_ptr->p_impl_](const ommo::WirelessManagementEvent& event)
                                 {
                                     impl->HandleEvent(event);
                                 },
                                 manager_wrapper
                             );
-                            manager_wrapper->wireless_manager_ptr->p_impl_->SetCallData(call_data);
+                            manager_wrapper->wireless_manager_ptr->p_impl_->SetClientReactor(reactor);
                         }
                     }
                     wl.unlock();
@@ -203,12 +202,20 @@ namespace ommo
                 else
                 {
                     OMMOLOG_INFO("gRPC channel is not ready");
-                    if (device_event_stream_ptr_ != nullptr)
+                    if (device_event_stream_ptr_)
                     {
                         OMMOLOG_INFO("Stopping device event stream");
-                        // Completion queue processor will delete the call data after cancel call.
                         device_event_stream_ptr_->CancelCall();
-                        device_event_stream_ptr_ = nullptr;
+                        device_event_stream_ptr_->WaitForDone();
+                        device_event_stream_ptr_.reset();
+                    }
+
+                    if (reference_device_state_stream_ptr_)
+                    {
+                        OMMOLOG_INFO("Stopping reference device state stream");
+                        reference_device_state_stream_ptr_->CancelCall();
+                        reference_device_state_stream_ptr_->WaitForDone();
+                        reference_device_state_stream_ptr_.reset();
                     }
 
                     // If the channel changes from ready to not-ready, the service is assumed to be offline and all devices are considered disconnected.
@@ -233,12 +240,20 @@ namespace ommo
             std::this_thread::sleep_for(std::chrono::seconds(check_channel_interval));
         }
         OMMOLOG_INFO("Channel monitor stopped");
-        if (device_event_stream_ptr_ != nullptr)
+        if (device_event_stream_ptr_)
         {
             OMMOLOG_INFO("Stopping device event stream");
-            // Completion queue processor will delete the call data after cancel call.
             device_event_stream_ptr_->CancelCall();
-            device_event_stream_ptr_ = nullptr;
+            device_event_stream_ptr_->WaitForDone();
+            device_event_stream_ptr_.reset();
+        }
+
+        if (reference_device_state_stream_ptr_)
+        {
+            OMMOLOG_INFO("Stopping reference device state stream");
+            reference_device_state_stream_ptr_->CancelCall();
+            reference_device_state_stream_ptr_->WaitForDone();
+            reference_device_state_stream_ptr_.reset();
         }
     }
 
@@ -329,6 +344,23 @@ namespace ommo
         if (device_event_user_callback_)
         {
             device_event_user_callback_(*event_ptr);
+        }
+    }
+
+    void ClientManager::ReferenceDeviceStateEventProcessor(const ommo::ReferenceDeviceState& event)
+    {
+        api::ReferenceDeviceState ref_device_state_event = ommo::ProtoToReferenceDeviceStateEvent(event);
+
+        // Update current reference device state
+        {
+            std::lock_guard<std::mutex> lock(reference_device_state_mutex_);
+            current_reference_device_state_ = ref_device_state_event;
+        }
+
+        // Run the user-defined event callback function.
+        if (reference_device_state_event_user_callback_)
+        {
+            reference_device_state_event_user_callback_(ref_device_state_event);
         }
     }
 
@@ -558,6 +590,16 @@ namespace ommo
         channel_state_user_callback_ = nullptr;
     }
 
+    void ClientManager::RegisterReferenceDeviceStateEventCallback(std::function<void(const api::ReferenceDeviceState&)> callback_function)
+    {
+        reference_device_state_event_user_callback_ = callback_function;
+    }
+
+    void ClientManager::ResetReferenceDeviceStateEventCallback()
+    {
+        reference_device_state_event_user_callback_ = nullptr;
+    }
+
     std::shared_ptr<DataManager> ClientManager::RequestDeviceData(api::DataRequest& request)
     {
         // Create data manager for request.
@@ -721,14 +763,14 @@ namespace ommo
     {
         auto manager_wrapper = std::make_shared<WirelessManagerWrapper>(std::make_shared<api::WirelessManager>());
 
-        RpcWirelessManagementStreamClientCallData* call_data = OpenWirelessManagementStream(
+        auto reactor = RpcWirelessManagementStreamClientBidiReactor::Create(channel_,
             [impl = manager_wrapper->wireless_manager_ptr->p_impl_](const ommo::WirelessManagementEvent& event)
             {
                 impl->HandleEvent(event);
             },
             manager_wrapper
-            );
-        manager_wrapper->wireless_manager_ptr->p_impl_->SetCallData(call_data);
+        );
+        manager_wrapper->wireless_manager_ptr->p_impl_->SetClientReactor(reactor);
 
         std::unique_lock<std::mutex> wl(wireless_manager_list_mutex_);
         wireless_manager_wrapper_list_.push_back(manager_wrapper);
@@ -738,9 +780,6 @@ namespace ommo
 
     void ClientManager::DeleteWirelessManager(api::WirelessManager* wireless_manager)
     {
-        // Cancel the call. The Completion Queue will delete the call data.
-        wireless_manager->CancelStream();
-
         std::unique_lock<std::mutex> wl(wireless_manager_list_mutex_);
         for (auto it = wireless_manager_wrapper_list_.begin(); it != wireless_manager_wrapper_list_.end();)
         {
@@ -779,5 +818,11 @@ namespace ommo
         {
             return false;
         }
+    }
+
+    api::ReferenceDeviceState ClientManager::GetCurrentReferenceDeviceState()
+    {
+        std::lock_guard<std::mutex> lock(reference_device_state_mutex_);
+        return current_reference_device_state_;
     }
 }  // namespace ommo

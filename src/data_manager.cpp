@@ -120,42 +120,61 @@ namespace ommo
 
     void DataManager::UpdateDeviceData(const ommo::TrackingDeviceData& packet)
     {
+        // Add SDK receive timestamp to the protobuf data before conversion
+        ommo::TrackingDeviceData packet_copy(packet);
+        auto* ts = packet_copy.add_latency_timestamps();
+        ts->set_timestamp_type(ommo::LATENCY_TIMESTAMP_TYPE_SDK_RECEIVED);
+        ts->set_steady_timestamp_milliseconds(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count());
+        ts->set_system_timestamp_milliseconds(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count());
+
         std::shared_lock<std::shared_mutex> lk(device_data_map_mtx_);
 
-        uint64_t device_hash = api::Hash(packet.siu_uuid(), packet.port_id());
+        uint64_t device_hash = api::Hash(packet_copy.siu_uuid(), packet_copy.port_id());
 
         auto storage = device_data_map_.find(device_hash);
         if (storage != device_data_map_.end())
         {
-            storage->second->PushData(packet);
+            storage->second->PushData(packet_copy);
         }
 
         if (device_data_user_callback_)
         {
             // convert to api UPtr type to be automaitcally destroyed after callback
-            api::TrackingDeviceDataUPtr cb_packet = ProtoToTrackingDeviceData(packet);
+            api::TrackingDeviceDataUPtr cb_packet = ProtoToTrackingDeviceData(packet_copy);
             device_data_user_callback_(*cb_packet);
         }
     }
 
     void DataManager::UpdateDataFrame(const ommo::DataFrame& packet)
     {
+        // Add SDK receive timestamp to each device data before conversion
+        ommo::DataFrame packet_copy(packet);
+        const uint64_t steady_ts = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+        const uint64_t system_ts = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+        for (int i = 0; i < packet_copy.device_data_size(); i++)
+        {
+            auto* ts = packet_copy.mutable_device_data(i)->add_latency_timestamps();
+            ts->set_timestamp_type(ommo::LATENCY_TIMESTAMP_TYPE_SDK_RECEIVED);
+            ts->set_steady_timestamp_milliseconds(steady_ts);
+            ts->set_system_timestamp_milliseconds(system_ts);
+        }
+
         std::shared_lock<std::shared_mutex> lk(device_data_map_mtx_);
 
-        for (int i = 0; i < packet.device_data_size(); i++)
+        for (int i = 0; i < packet_copy.device_data_size(); i++)
         {
-            uint64_t device_hash = api::Hash(packet.device_data(i).siu_uuid(), packet.device_data(i).port_id());
+            uint64_t device_hash = api::Hash(packet_copy.device_data(i).siu_uuid(), packet_copy.device_data(i).port_id());
             auto it = device_data_map_.find(device_hash);
             if (it != device_data_map_.end())
             {
-                it->second->PushData(packet.device_data(i));
+                it->second->PushData(packet_copy.device_data(i));
             }
         }
 
         if (data_frame_user_callback_)
         {
             // convert to api UPtr type to be automaitcally destroyed after callback
-            api::DataFrameUPtr cb_packet = ProtoToDataFrame(packet);
+            api::DataFrameUPtr cb_packet = ProtoToDataFrame(packet_copy);
             data_frame_user_callback_(*cb_packet);
         }
     }
@@ -192,7 +211,7 @@ namespace ommo
         data_frame_user_callback_ = nullptr;
     }
 
-    api::DataResponseUPtr DataManager::GetLatestData(const api::DeviceID& device_id)
+    api::DataResponseUPtr DataManager::GetLatestData(const api::DeviceID& device_id, std::chrono::milliseconds timeout_threshold)
     {
         api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
         uint64_t hash = api::Hash(device_id);
@@ -201,12 +220,26 @@ namespace ommo
         auto storage = device_data_map_.find(hash);
         if (storage != device_data_map_.end())
         {
-            result = storage->second->GetLatestData();
+            result = storage->second->GetLatestData(timeout_threshold);
         }
         return result;
     }
 
-    api::DataResponseUPtr DataManager::GetLatestData(const api::DeviceID& device_id, int32_t count)
+    api::DataResponseUPtr DataManager::GetDataWithMaxAge(const api::DeviceID& device_id, std::chrono::milliseconds max_age)
+    {
+        api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
+        uint64_t hash = api::Hash(device_id);
+        // Lock the data map and find the storage for this device
+        std::shared_lock<std::shared_mutex> lk(device_data_map_mtx_);
+        auto storage = device_data_map_.find(hash);
+        if (storage != device_data_map_.end())
+        {
+            result = storage->second->GetDataWithMaxAge(max_age);
+        }
+        return result;
+    }
+
+    api::DataResponseUPtr DataManager::GetLatestData(const api::DeviceID& device_id, uint32_t count)
     {
         api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
         // Lock the data map and find the storage for this device
@@ -220,7 +253,7 @@ namespace ommo
         return result;
     }
 
-    api::DataResponseUPtr DataManager::GetDataSinceIndex(const api::DeviceID& device_id, int32_t start_idx)
+    api::DataResponseUPtr DataManager::GetDataSinceIndex(const api::DeviceID& device_id, uint32_t start_idx)
     {
         api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
         uint64_t hash = api::Hash(device_id);
@@ -333,13 +366,12 @@ namespace ommo
         dataframe_stream_lock.unlock();
 
         std::unique_lock<std::mutex> data_stream_map_lock(data_stream_map_mtx_);
-        for (auto it = device_data_streams_.begin(); it != device_data_streams_.end();)
+        auto it = std::find_if(device_data_streams_.begin(), device_data_streams_.end(),
+                            [&call_data](const auto& item) {return item.second == call_data;});
+        if (it != device_data_streams_.end())
         {
-            if (it->second == call_data)
-            {
-                it = device_data_streams_.erase(it);
-                return true;
-            }
+            device_data_streams_.erase(it);
+            return true;
         }
         data_stream_map_lock.unlock();
 

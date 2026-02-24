@@ -9,6 +9,7 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
 #include <shared_mutex>
 #include "sdk_types.h"
 #include "ommo_service_api.pb.h"
@@ -25,6 +26,7 @@ namespace ommo
         };
 
         void SwitchBufferPointer();
+        bool IsPacketWithinTimeout(const api::DevicePacket& packet, std::chrono::milliseconds timeout, uint64_t reference_time_ms) const;
 
         const api::DeviceDescriptorUPtr device_;
         uint32_t buffer_size_;
@@ -49,8 +51,13 @@ namespace ommo
 
         bool PushData(const ommo::TrackingDeviceData& m);
 
-        // Return the most recent packet.
-        api::DataResponseUPtr GetLatestData();
+        // If timeout_threshold is zero, return the latest data packet available.
+        // If timeout_threshold is non-zero, return the latest data received within the timeout threshold.
+        // If no data is received within the timeout threshold, return an empty DataResponse.
+        api::DataResponseUPtr GetLatestData(std::chrono::milliseconds timeout_threshold = std::chrono::milliseconds(0));
+
+        // Return all data received within the specified max_age.
+        api::DataResponseUPtr GetDataWithMaxAge(std::chrono::milliseconds max_age);
 
         // Return the most recent <count> packets.
         api::DataResponseUPtr GetLatestData(uint32_t count);

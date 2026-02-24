@@ -116,6 +116,9 @@ namespace ommo
     // Convert from ommo::SelectReferenceDeviceResponse protobuf to ommo::api::SelectReferenceDeviceResponse struct
     api::SelectReferenceDeviceResponse ProtoToSelectReferenceDeviceResponse(const ommo::SelectReferenceDeviceResponse& response);
 
+    // Convert from ommo::ReferenceDeviceState protobuf to ommo::api::ReferenceDeviceState struct
+    api::ReferenceDeviceState ProtoToReferenceDeviceStateEvent(const ommo::ReferenceDeviceState& event);
+
     /*
      * ------------------------------------------------------------------------
      * ommo::api struct to protobuf converters

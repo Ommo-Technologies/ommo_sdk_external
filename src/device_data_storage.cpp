@@ -104,9 +104,31 @@ namespace ommo
         return true;
     }
 
-    api::DataResponseUPtr DeviceDataStorage::GetLatestData()
+    bool DeviceDataStorage::IsPacketWithinTimeout(const api::DevicePacket& packet, std::chrono::milliseconds timeout, uint64_t reference_time_ms) const
+    {
+        // No timeout specified, return true.
+        if (timeout.count() <= 0)
+        {
+            return true;
+        }
+    
+        const auto& dev_data = packet.device_data;
+        for (uint32_t i = 0; i < dev_data.latency_timestamp_count; i++)
+        {
+            if (dev_data.latency_timestamps[i].timestamp_type == api::kTimestampTypeSdkReceived)
+            {
+                return reference_time_ms <= dev_data.latency_timestamps[i].system_timestamp_milliseconds + timeout.count();
+            }
+        }
+        // No SDK receive timestamp found, cannot determine if packet is within timeout, return false.
+        return false;
+    }
+
+    api::DataResponseUPtr DeviceDataStorage::GetLatestData(std::chrono::milliseconds timeout_threshold)
     {
         api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
+        const uint64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
         // The write and read buffers cannot switch while reading data.
         std::shared_lock<std::shared_mutex> lock(switch_mutex_);
 
@@ -114,23 +136,111 @@ namespace ommo
         int32_t idx = write_buffer_.data_num - 1;
         if (idx >= 0)
         {
-            result->packets = new api::DevicePacket[1];
-            api::MoveAndDeletePtr(result->packets[0], api::CopyDevicePacket(write_buffer_.packet_buffer_ptr[idx]));
-            result->packet_count = 1;
-            result->state = api::DataResponseState::kSuccess;
+            if (IsPacketWithinTimeout(write_buffer_.packet_buffer_ptr[idx], timeout_threshold, now_ms))
+            {
+                result->packets = new api::DevicePacket[1];
+                api::MoveAndDeletePtr(result->packets[0], api::CopyDevicePacket(write_buffer_.packet_buffer_ptr[idx]));
+                result->packet_count = 1;
+                result->state = api::DataResponseState::kSuccess;
+            }
         }
         else
         {
             idx = read_buffer_.data_num - 1;
             if (idx >= 0)
             {
-                result->packets = new api::DevicePacket[1];
-                api::MoveAndDeletePtr(result->packets[0], api::CopyDevicePacket(read_buffer_.packet_buffer_ptr[idx]));
-                result->packet_count = 1;
-                result->state = api::DataResponseState::kSuccess;
+                if (IsPacketWithinTimeout(read_buffer_.packet_buffer_ptr[idx], timeout_threshold, now_ms))
+                {
+                    result->packets = new api::DevicePacket[1];
+                    api::MoveAndDeletePtr(result->packets[0], api::CopyDevicePacket(read_buffer_.packet_buffer_ptr[idx]));
+                    result->packet_count = 1;
+                    result->state = api::DataResponseState::kSuccess;
+                }
             }
         }
         // If the read and write buffers are both empty, return default value.
+        return result;
+    }
+
+    api::DataResponseUPtr DeviceDataStorage::GetDataWithMaxAge(std::chrono::milliseconds max_age)
+    {
+        api::DataResponseUPtr result(new api::DataResponse{ api::DataResponseState::kNoData, nullptr, 0 });
+        if (max_age.count() <= 0)
+        {
+            return result;
+        }
+
+        std::shared_lock<std::shared_mutex> lock(switch_mutex_);
+
+        const int32_t write_packet_num = write_buffer_.data_num;
+        const int32_t read_packet_num = read_buffer_.data_num;
+        const uint64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+
+        // We need to find how many packets match the criteria first
+        std::vector<int32_t> write_indices;
+        std::vector<int32_t> read_indices;
+
+        // Check write buffer (newest first)
+        for (int32_t i = write_packet_num - 1; i >= 0; --i)
+        {
+            if (IsPacketWithinTimeout(write_buffer_.packet_buffer_ptr[i], max_age, now_ms))
+            {
+                write_indices.push_back(i);
+            }
+            else
+            {
+                break;
+            }
+        }
+
+        // Check read buffer only if all write buffer packets were valid
+        bool check_read_buffer = false;
+        if (write_packet_num == 0)
+        {
+            check_read_buffer = true;
+        }
+        else if (write_indices.size() == static_cast<size_t>(write_packet_num))
+        {
+            check_read_buffer = true;
+        }
+
+        if (check_read_buffer)
+        {
+            for (int32_t i = read_packet_num - 1; i >= 0; --i)
+            {
+                if (IsPacketWithinTimeout(read_buffer_.packet_buffer_ptr[i], max_age, now_ms))
+                {
+                    read_indices.push_back(i);
+                }
+                else
+                {
+                    break;
+                }
+            }
+        }
+
+        uint32_t total_count = static_cast<uint32_t>(write_indices.size() + read_indices.size());
+        
+        if (total_count > 0)
+        {
+            result->packets = new api::DevicePacket[total_count];
+            result->packet_count = total_count;
+            result->state = api::DataResponseState::kSuccess;
+            
+            uint32_t out_idx = 0;
+
+            // Copy chronologically (oldest first): read buffer then write buffer
+            for (auto it = read_indices.rbegin(); it != read_indices.rend(); ++it)
+            {
+                api::MoveAndDeletePtr(result->packets[out_idx++], api::CopyDevicePacket(read_buffer_.packet_buffer_ptr[*it]));
+            }
+
+            for (auto it = write_indices.rbegin(); it != write_indices.rend(); ++it)
+            {
+                api::MoveAndDeletePtr(result->packets[out_idx++], api::CopyDevicePacket(write_buffer_.packet_buffer_ptr[*it]));
+            }
+        }
+
         return result;
     }
 
